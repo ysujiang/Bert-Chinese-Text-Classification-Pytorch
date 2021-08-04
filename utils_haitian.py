@@ -38,24 +38,33 @@ def build_dataset(config):
                     continue
                 if 'label' in lin:
                     continue
-                number,content,position, ployphone,label_ = lin.split('\t')
+                number,content,position,sentence_pos,segment,ployphone,label_ = lin.split('\t')
                 #print('len labels',len(label_))
-                #print(ployphone_id)
+                sentence_pos = sentence_pos[1:-1].split(',')
+                segment = segment[1:-1].split(',')
+                sentence_pos = list(map(int, sentence_pos))
+                sentence_pos.insert(0,0)
+                segment = list(map(int, segment))
+                segment.insert(0,0)
+                #print('pos ',type(sentence_pos),sentence_pos)
+                #print('segment ',type(segment),segment)
                 label = ployphone_id[label_]
-                
+        
                 token = config.tokenizer.tokenize(content)
                 token = [CLS] + token
                 seq_len = len(token)
                 mask = []
                 token_ids = config.tokenizer.convert_tokens_to_ids(token)
                 if len(content)>pad_size-1:
-                    continue
+                    print(11111111111111)
                 if pad_size:
                     if len(token) < pad_size:
                         mask = [1] * len(token_ids) + [0] * (pad_size - len(token))
                         token_ids += ([0] * (pad_size - len(token)))
+                        sentence_pos = sentence_pos+[0]*(pad_size-len(sentence_pos)) #词性
+                        segment = segment+[0]*(pad_size-len(segment))#分词
                     else:
-                        continue
+                        
                         mask = [1] * pad_size
                         token_ids = token_ids[:pad_size]
                         seq_len = pad_size
@@ -82,11 +91,14 @@ def build_dataset(config):
                     #print(m,len(ploymasked))
                     #print(ployphone)
                     ploymasked[ployphone_id[m]]=1#jiang
+                '''
                 positions = [0.0]*len(token_ids)#jiang
                 if int(position)>len(token_ids):
                     print(len(content),len(token_ids),position)
                 positions[int(position)+1]=1.0#jiang 多了一个开始的位置，因此位置加1
-                contents.append((token_ids, int(label), seq_len, mask,ploymasked,positions))
+                '''
+                positions = [int(position)+1]
+                contents.append((token_ids, int(label), seq_len, mask,ploymasked,positions,sentence_pos,segment))
         #print(len(contents[0]))
         return contents
     train = load_dataset(config.train_path, config.pad_size)
@@ -107,15 +119,17 @@ class DatasetIterater(object):
         self.device = device
 
     def _to_tensor(self, datas):
-        x = torch.LongTensor([_[0] for _ in datas]).to(self.device)
-        y = torch.LongTensor([_[1] for _ in datas]).to(self.device)
+        x = torch.LongTensor([_[0] for _ in datas]).to(self.device)#token_id
+        y = torch.LongTensor([_[1] for _ in datas]).to(self.device)#标签
 
         # pad前的长度(超过pad_size的设为pad_size)
-        seq_len = torch.LongTensor([_[2] for _ in datas]).to(self.device)
-        mask = torch.LongTensor([_[3] for _ in datas]).to(self.device)
-        ployphones = torch.LongTensor([_[4] for _ in datas]).to(self.device)#jiang
-        positions = torch.FloatTensor([_[5] for _ in datas]).to(self.device)
-        return (x, seq_len, mask,ployphones,positions), y
+        seq_len = torch.LongTensor([_[2] for _ in datas]).to(self.device)#序列的长度
+        mask = torch.LongTensor([_[3] for _ in datas]).to(self.device)#标记注意力
+        ployphones = torch.LongTensor([_[4] for _ in datas]).to(self.device)#jiang多音字的音
+        positions = torch.LongTensor([_[5] for _ in datas]).to(self.device)#多音字的位置
+        sentence_pos = torch.LongTensor([_[6] for _ in datas]).to(self.device)#句子的词性
+        segment = torch.LongTensor([_[7] for _ in datas]).to(self.device)#句子的分词
+        return (x, seq_len, mask,ployphones,positions,sentence_pos,segment), y
 
     def __next__(self):
         if self.residue and self.index == self.n_batches:
